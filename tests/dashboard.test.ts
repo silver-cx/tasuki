@@ -30,10 +30,12 @@ test("看板包含目标、赛道、四张图和建议", async () => {
   const ctx = buildContext(db, { ...opts, now: new Date("2026-10-01T12:00:00Z") });
   const html = renderDashboard(ctx);
 
-  assert.match(html, /<h1>5 km 跑进 30:00<\/h1>/);
+  assert.match(html, /<h1>.*5 km 跑进 30:00。<\/h1>/);
+  assert.match(html, /目标进度/);
+  assert.match(html, /下一次测试/);
   assert.match(html, /aria-label="训练赛道/);
   assert.match(html, /目标测试/);
-  assert.equal((html.match(/<svg viewBox="0 0 960/g) ?? []).length, 4, "赛道 + 成绩 + 心率 + 跑量");
+  assert.equal((html.match(/<svg viewBox="0 0 1200/g) ?? []).length, 4, "赛道 + 成绩 + 心率 + 跑量");
   assert.match(html, /建议/);
   assert.match(html, /数据只保存在本机/);
   // 页面不依赖任何外部资源
@@ -43,6 +45,6 @@ test("看板包含目标、赛道、四张图和建议", async () => {
 test("没有目标时给出下一步提示", () => {
   const db = openStore(":memory:");
   const html = renderDashboard(buildContext(db, { now: new Date(), timeZone: "Asia/Shanghai", hrmax: null }));
-  assert.match(html, /还没有目标/);
+  assert.match(html, /先定一个目标/);
   assert.match(html, /npm run goal -- set/);
 });

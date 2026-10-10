@@ -9,7 +9,7 @@ import type { SessionMatch } from "#engine/plan/match.ts";
 import { esc } from "./markdown.ts";
 
 const DAY = 864e5;
-const W = 960;
+const W = 1200;
 
 const ymdMs = (ymd: string) => Date.parse(`${ymd}T00:00:00Z`);
 
