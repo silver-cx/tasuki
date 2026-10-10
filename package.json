@@ -1,0 +1,21 @@
+{
+  "name": "tasuki",
+  "version": "0.1.0",
+  "description": "陪跑者把目标一棒一棒跑完的开源训练教练",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "imports": {
+    "#schema": "./packages/schema/src/types.ts",
+    "#adapters/metricbridge": "./packages/adapters/apple-metricbridge/src/index.ts",
+    "#engine/*": "./packages/engine/src/*",
+    "#knowledge": "./packages/knowledge/src/index.ts"
+  },
+  "scripts": {
+    "report": "node --disable-warning=ExperimentalWarning apps/cli/src/main.ts",
+    "test": "node --disable-warning=ExperimentalWarning --test \"tests/**/*.test.ts\""
+  }
+}

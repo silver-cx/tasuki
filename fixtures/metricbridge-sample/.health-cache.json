@@ -1,0 +1,20 @@
+{
+  "_meta": {
+    "app": "1.13",
+    "schema": 1,
+    "schemaMinor": 1,
+    "writtenAt": "2026-10-01T12:00:00Z",
+    "note": "虚构的样例数据，仅用于测试和演示"
+  },
+  "age": {
+    "unit": "count",
+    "daily": [{ "d": "2026-01-01", "v": 30 }]
+  },
+  "resting_heart_rate": {
+    "unit": "count/min",
+    "daily": [
+      { "d": "2026-09-29", "v": 62 },
+      { "d": "2026-09-30", "v": 61 }
+    ]
+  }
+}
