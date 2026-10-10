@@ -14,9 +14,9 @@
 
 数据默认只留在你自己的电脑上。
 
-## 现在能做什么（里程碑 1）
+## 现在能做什么
 
-读取 Apple 健康数据，在命令行里输出最近的心率区间分析和训练建议：
+读取 Apple 健康数据，存进本地数据库，在命令行里输出心率区间分析和训练建议：
 
 ```text
 最近 14 天的跑步（按平均心率归入区间）
@@ -43,18 +43,36 @@ cd tasuki
 npm run report
 ```
 
-常用参数：
+`report` 会先同步 MetricBridge 的最新数据，再输出报告。数据保存在 `data/tasuki.db`，只在你的电脑上。
+
+### 补全历史数据（推荐做一次）
+
+MetricBridge 只带有近期运动的心率。想让分析覆盖全部历史，导入一次健康 App 的官方导出包：
+
+1. iPhone 打开「健康」App → 右上角头像 →「导出所有健康数据」。
+2. 把生成的 `导出.zip`（英文系统叫 `export.zip`）传到 Mac，不用解压。
+3. 运行：
+
+```bash
+npm run import -- ~/Downloads/导出.zip
+```
+
+同一次跑步同时出现在两个来源时，会自动合并成一条，互相补全缺失的字段。重复导入也不会产生重复记录。
+
+### 常用参数
 
 ```bash
 npm run report -- --days 28        # 看最近 28 天
 npm run report -- --hrmax 186      # 手动指定最大心率
-npm run report -- --data <文件夹>   # 数据不在默认的 iCloud 位置时使用
+npm run report -- --no-sync        # 不同步，直接看数据库里已有的数据
+npm run sync                       # 只同步 MetricBridge
 ```
 
-没有 Apple Watch 也可以用样例数据体验：
+### 没有 Apple Watch？用样例数据体验
 
 ```bash
-npm run report -- --data fixtures/metricbridge-sample --now 2026-10-01
+npm run import -- fixtures/apple-export-sample --db data/demo.db
+npm run report -- --db data/demo.db --data fixtures/metricbridge-sample --now 2026-10-01
 ```
 
 ## 项目结构
@@ -62,7 +80,10 @@ npm run report -- --data fixtures/metricbridge-sample --now 2026-10-01
 ```text
 packages/
   schema/                    统一数据模型，所有数据源都转换成这个格式
-  adapters/apple-metricbridge/   读取 MetricBridge 导出的数据
+  adapters/
+    apple-metricbridge/      读取 MetricBridge 写到 iCloud 的数据
+    apple-export/            读取健康 App 官方导出包
+  store/                     本地数据库（SQLite），跨来源合并
   engine/
     metrics/                 心率区间等指标计算
     rules/                   教练规则，一条规则一个文件，每条都有测试
@@ -75,7 +96,7 @@ tests/                       测试（npm test）
 ## 路线图
 
 - [x] 里程碑 1：读取 MetricBridge 数据，心率区间分析，第一条规则和知识卡
-- [ ] 里程碑 2：本地数据库，导入健康 App 官方导出包补全历史
+- [x] 里程碑 2：本地数据库，导入健康 App 官方导出包补全历史
 - [ ] 里程碑 3：目标设置与达成预测（5 km 成绩趋势）
 - [ ] 里程碑 4：私人网页看板
 - [ ] 里程碑 5：后台自动同步，更多规则和知识卡

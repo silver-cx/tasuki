@@ -12,10 +12,14 @@
     "#schema": "./packages/schema/src/types.ts",
     "#adapters/metricbridge": "./packages/adapters/apple-metricbridge/src/index.ts",
     "#engine/*": "./packages/engine/src/*",
-    "#knowledge": "./packages/knowledge/src/index.ts"
+    "#knowledge": "./packages/knowledge/src/index.ts",
+    "#adapters/apple-export": "./packages/adapters/apple-export/src/index.ts",
+    "#store": "./packages/store/src/index.ts"
   },
   "scripts": {
-    "report": "node --disable-warning=ExperimentalWarning apps/cli/src/main.ts",
+    "report": "node --disable-warning=ExperimentalWarning apps/cli/src/main.ts report",
+    "sync": "node --disable-warning=ExperimentalWarning apps/cli/src/main.ts sync",
+    "import": "node --disable-warning=ExperimentalWarning apps/cli/src/main.ts import",
     "test": "node --disable-warning=ExperimentalWarning --test \"tests/**/*.test.ts\""
   }
 }

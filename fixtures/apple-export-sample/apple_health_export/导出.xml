@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE HealthData [
+<!ELEMENT HealthData (ExportDate,Me,(Record|Correlation|Workout|ActivitySummary|ClinicalRecord)*)>
+]>
+<!-- 虚构的样例数据，格式与健康 App 官方导出一致，仅用于测试和演示 -->
+<HealthData locale="zh_CN">
+ <ExportDate value="2026-10-01 20:00:00 +0800"/>
+ <Me HKCharacteristicTypeIdentifierDateOfBirth="1996-01-01" HKCharacteristicTypeIdentifierBiologicalSex="HKBiologicalSexNotSet"/>
+ <Record type="HKQuantityTypeIdentifierBodyMass" sourceName="健康" unit="kg" creationDate="2026-01-06 08:00:00 +0800" startDate="2026-01-06 08:00:00 +0800" endDate="2026-01-06 08:00:00 +0800" value="65"/>
+ <Record type="HKQuantityTypeIdentifierBodyMass" sourceName="健康" unit="lb" creationDate="2026-09-01 08:00:00 +0800" startDate="2026-09-01 08:00:00 +0800" endDate="2026-09-01 08:00:00 +0800" value="165"/>
+ <Record type="HKQuantityTypeIdentifierHeartRate" sourceName="Apple Watch" unit="count/min" creationDate="2026-09-25 07:05:00 +0800" startDate="2026-09-25 07:05:00 +0800" endDate="2026-09-25 07:05:00 +0800" value="141"/>
+ <Workout workoutActivityType="HKWorkoutActivityTypeRunning" duration="30.5" durationUnit="min" totalDistance="4.2" totalDistanceUnit="km" totalEnergyBurned="280" totalEnergyBurnedUnit="kcal" sourceName="Apple Watch" creationDate="2025-07-12 07:40:00 +0800" startDate="2025-07-12 07:05:00 +0800" endDate="2025-07-12 07:35:30 +0800"/>
+ <Workout workoutActivityType="HKWorkoutActivityTypeRunning" duration="35" durationUnit="min" sourceName="Apple Watch" creationDate="2026-09-25 07:40:00 +0800" startDate="2026-09-25 07:00:30 +0800" endDate="2026-09-25 07:35:30 +0800">
+  <MetadataEntry key="HKIndoorWorkout" value="0"/>
+  <MetadataEntry key="HKElevationAscended" value="1250 cm"/>
+  <WorkoutEvent type="HKWorkoutEventTypeSegment" date="2026-09-25 07:00:30 +0800" duration="7" durationUnit="min"/>
+  <WorkoutStatistics type="HKQuantityTypeIdentifierHeartRate" startDate="2026-09-25 07:00:30 +0800" endDate="2026-09-25 07:35:30 +0800" average="138" minimum="96" maximum="150" unit="count/min"/>
+  <WorkoutStatistics type="HKQuantityTypeIdentifierDistanceWalkingRunning" startDate="2026-09-25 07:00:30 +0800" endDate="2026-09-25 07:35:30 +0800" sum="5.01" unit="km"/>
+  <WorkoutStatistics type="HKQuantityTypeIdentifierActiveEnergyBurned" startDate="2026-09-25 07:00:30 +0800" endDate="2026-09-25 07:35:30 +0800" sum="310" unit="kcal"/>
+  <WorkoutStatistics type="HKQuantityTypeIdentifierRunningPower" startDate="2026-09-25 07:00:30 +0800" endDate="2026-09-25 07:35:30 +0800" average="160" minimum="90" maximum="210" unit="W"/>
+  <WorkoutRoute sourceName="Apple Watch" creationDate="2026-09-25 07:40:00 +0800" startDate="2026-09-25 07:00:30 +0800" endDate="2026-09-25 07:35:30 +0800">
+   <FileReference path="/workout-routes/route_2026-09-25_7.35am.gpx"/>
+  </WorkoutRoute>
+ </Workout>
+ <Workout workoutActivityType="HKWorkoutActivityTypeCycling" duration="3600" durationUnit="s" sourceName="Apple Watch" creationDate="2026-09-28 19:00:00 +0800" startDate="2026-09-28 18:00:00 +0800" endDate="2026-09-28 19:00:00 +0800">
+  <WorkoutStatistics type="HKQuantityTypeIdentifierDistanceCycling" startDate="2026-09-28 18:00:00 +0800" endDate="2026-09-28 19:00:00 +0800" sum="18" unit="km"/>
+ </Workout>
+</HealthData>

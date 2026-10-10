@@ -1,26 +1,39 @@
-// Tasuki 命令行：读取健康数据，输出心率分析和训练建议。
+// Tasuki 命令行入口。
 //
-// 用法：
-//   npm run report
-//   npm run report -- --days 28 --hrmax 186
+// 命令：
+//   npm run report                    同步 MetricBridge 的最新数据，然后输出训练报告
+//   npm run sync                      只同步 MetricBridge 数据
+//   npm run import -- <导出包路径>     导入健康 App 的官方导出包（zip 或解压后的文件夹）
 //
-// 参数：
+// 通用参数：
+//   --db <文件>       数据库位置（默认 data/tasuki.db）
 //   --data <文件夹>   MetricBridge 数据文件夹（默认是 iCloud 里的 MetricBridge 目录）
+//   --no-sync         report 时不先同步
 //   --days <天数>     报告覆盖最近多少天（默认 14）
 //   --hrmax <心率>    手动指定最大心率，覆盖估算
 //   --tz <时区>       默认 Asia/Shanghai
 //   --now <日期>      把“今天”当作某一天，用于回看过去或演示样例数据，例如 2026-10-01
 
 import { parseArgs } from "node:util";
-import { DEFAULT_DIR, MetricBridgeError, latestDaily, loadMetricBridge } from "#adapters/metricbridge";
-import { fmtPace, localDate, paceOf, shortDate } from "#engine/format.ts";
-import { ZONES, estimateHrMax, zoneOf, zoneRange } from "#engine/metrics/hrZones.ts";
-import { runRules } from "#engine/rules/index.ts";
-import { loadCard } from "#knowledge";
+import { AppleExportError, loadAppleExport } from "#adapters/apple-export";
+import { DEFAULT_DIR, MetricBridgeError, loadMetricBridge } from "#adapters/metricbridge";
+import {
+  DEFAULT_DB,
+  loadActivities,
+  loadDaily,
+  loadSyncLog,
+  openStore,
+  saveSnapshot,
+  type Store,
+} from "#store";
+import { printReport } from "./report.ts";
 
-const { values } = parseArgs({
+const { values, positionals } = parseArgs({
+  allowPositionals: true,
   options: {
+    db: { type: "string", default: DEFAULT_DB },
     data: { type: "string", default: DEFAULT_DIR },
+    "no-sync": { type: "boolean", default: false },
     days: { type: "string", default: "14" },
     hrmax: { type: "string" },
     tz: { type: "string", default: "Asia/Shanghai" },
@@ -28,143 +41,77 @@ const { values } = parseArgs({
   },
 });
 
-const timeZone = values.tz as string;
-const days = Number(values.days);
-const now = values.now ? new Date(`${values.now}T23:59:59+08:00`) : new Date();
-if (Number.isNaN(now.getTime())) {
-  console.error("--now 的格式应为 YYYY-MM-DD，例如 2026-10-01");
+function fail(message: string): never {
+  console.error(message);
   process.exit(1);
 }
 
-function line(text = "") {
-  console.log(text);
-}
-
-function pad(text: string, width: number) {
-  // 中文字符按两个宽度计算，保证表格对齐
-  const w = [...text].reduce((n, ch) => n + (/[　-￿]/.test(ch) ? 2 : 1), 0);
-  return text + " ".repeat(Math.max(0, width - w));
-}
-
-let snapshot;
-try {
-  snapshot = loadMetricBridge(values.data);
-} catch (err) {
-  if (err instanceof MetricBridgeError) {
-    console.error(`读取数据失败：${err.message}`);
-    process.exit(1);
+/** 从 MetricBridge 同步到数据库。quiet=true 时找不到数据只提示不报错（report 用）。 */
+function syncMetricBridge(db: Store, quiet: boolean) {
+  try {
+    const snap = loadMetricBridge(values.data);
+    const r = saveSnapshot(db, snap);
+    if (!quiet) console.log(`已同步 MetricBridge：${r.activities} 次运动，${r.dailyValues} 条每日指标。`);
+  } catch (err) {
+    if (!(err instanceof MetricBridgeError)) throw err;
+    if (quiet) console.log(`（跳过 MetricBridge 同步：${err.message.split("\n")[0]}）\n`);
+    else fail(`同步失败：${err.message}`);
   }
-  throw err;
 }
 
-const runs = snapshot.activities.filter((a) => a.sport === "running");
-const runsWithHr = runs.filter((a) => a.avgHr != null);
-const totalKm = runs.reduce((s, a) => s + (a.distanceM ?? 0), 0) / 1000;
-const age = latestDaily(snapshot, "age");
-const hrMax = estimateHrMax({
-  age,
-  activities: runs,
-  manual: values.hrmax ? Number(values.hrmax) : null,
-});
-
-line("Tasuki · 训练报告");
-if (snapshot.exportedAt) {
-  const t = new Date(snapshot.exportedAt).toLocaleString("zh-CN", { timeZone, hour12: false });
-  line(`数据更新于 ${t}`);
-}
-line();
-
-if (runs.length === 0) {
-  line("还没有跑步记录。");
-  process.exit(0);
-}
-
-line(
-  `跑步记录：${runs.length} 次，共 ${totalKm.toFixed(1)} km，` +
-    `最早 ${localDate(runs[0].start, timeZone)}；其中 ${runsWithHr.length} 次带心率。`,
-);
-
-if (!hrMax) {
-  line("没有年龄，也没有心率数据，暂时无法划分心率区间。可以用 --hrmax 手动指定最大心率。");
-  process.exit(0);
-}
-
-const how =
-  hrMax.method === "manual"
-    ? "手动指定"
-    : hrMax.method === "age"
-      ? `按 220 − 年龄 ${hrMax.age} 估算`
-      : "取实测最高心率";
-const observed = hrMax.observedMax != null ? `；实测最高 ${Math.round(hrMax.observedMax)}` : "";
-line(`最大心率：${hrMax.value}（${how}${observed}）`);
-line(
-  "心率区间：" +
-    ZONES.map((z) => {
-      const [lo, hi] = zoneRange(z, hrMax.value);
-      return z.zone === 1 ? `1 区 <${hi}` : z.zone === 5 ? `5 区 ≥${lo}` : `${z.zone} 区 ${lo}–${hi}`;
-    }).join(" · "),
-);
-line();
-
-// 最近 N 天的跑步明细
-const since = now.getTime() - days * 864e5;
-const recent = runs.filter(
-  (a) => Date.parse(a.start) >= since && Date.parse(a.start) <= now.getTime(),
-);
-line(`最近 ${days} 天的跑步（按平均心率归入区间）`);
-if (recent.length === 0) {
-  line("  这段时间没有跑步。");
-} else {
-  line(`  ${pad("日期", 7)}${pad("距离", 10)}${pad("配速", 7)}${pad("平均心率", 10)}区间`);
-  const counts = new Map<number, number>();
-  for (const a of recent) {
-    const date = shortDate(localDate(a.start, timeZone));
-    const km = a.distanceM ? `${(a.distanceM / 1000).toFixed(2)} km` : "—";
-    const pace = fmtPace(paceOf(a.durationSec, a.distanceM));
-    let hr = "—";
-    let zone = "无心率数据";
-    if (a.avgHr != null) {
-      const z = zoneOf(a.avgHr, hrMax.value);
-      counts.set(z.zone, (counts.get(z.zone) ?? 0) + 1);
-      hr = String(Math.round(a.avgHr));
-      zone = `${z.zone} 区 ${z.name}（${Math.floor((a.avgHr / hrMax.value) * 100)}%）`;
-    }
-    line(`  ${pad(date, 7)}${pad(km, 10)}${pad(pace, 7)}${pad(hr, 10)}${zone}`);
-  }
-  if (counts.size > 0) {
-    line(
-      "  分布：" + ZONES.map((z) => `${z.zone} 区 ${counts.get(z.zone) ?? 0} 次`).join(" · "),
+async function importExport(db: Store, input: string | undefined) {
+  if (!input) fail("请提供导出包路径，例如：npm run import -- ~/Downloads/导出.zip");
+  console.log(`正在读取 ${input}，文件较大时需要一两分钟……`);
+  try {
+    let progressShown = false;
+    const snap = await loadAppleExport(input, (p) => {
+      progressShown = true;
+      process.stdout.write(`\r  已读取 ${(p.lines / 1e6).toFixed(1)} 百万行，找到 ${p.workouts} 次运动`);
+    });
+    if (progressShown) process.stdout.write("\n");
+    const r = saveSnapshot(db, snap);
+    const runs = snap.activities.filter((a) => a.sport === "running");
+    const withHr = runs.filter((a) => a.avgHr != null).length;
+    console.log(
+      `已导入：${r.activities} 次运动（其中跑步 ${runs.length} 次，${withHr} 次带心率），` +
+        `${r.dailyValues} 条体重记录。`,
     );
+  } catch (err) {
+    if (err instanceof AppleExportError) fail(`导入失败：${err.message}`);
+    throw err;
   }
 }
-line();
 
-// 教练建议
-const insights = runRules({ activities: snapshot.activities, hrMax: hrMax.value, now, timeZone });
-line("建议");
-if (insights.length === 0) {
-  line("  目前没有需要调整的地方，继续保持。");
+function report(db: Store) {
+  const now = values.now ? new Date(`${values.now}T23:59:59+08:00`) : new Date();
+  if (Number.isNaN(now.getTime())) fail("--now 的格式应为 YYYY-MM-DD，例如 2026-10-01");
+  printReport({
+    activities: loadActivities(db),
+    daily: loadDaily(db),
+    syncLog: loadSyncLog(db),
+    days: Number(values.days),
+    now,
+    timeZone: values.tz as string,
+    hrmax: values.hrmax ? Number(values.hrmax) : null,
+  });
 }
-for (const ins of insights) {
-  line(`  ${ins.severity === "warning" ? "⚠" : "·"} ${ins.title}`);
-  line(`    发现：${ins.finding}`);
-  line(`    建议：${ins.suggestion}`);
-  const flagged = ins.evidence.filter((e) => e.flagged);
-  if (flagged.length > 0) {
-    line(
-      "    依据：" +
-        flagged
-          .map((e) => `${shortDate(e.date)} 心率 ${e.avgHr}（${Math.floor((e.pctOfMax ?? 0) * 100)}%）`)
-          .join("，"),
-    );
-  }
-  for (const a of ins.assumptions) line(`    假设：${a}`);
-  if (ins.cardId) {
-    const card = loadCard(ins.cardId);
-    if (card) {
-      const status = card.status === "reviewed" ? "" : "（草稿，待审核）";
-      line(`    知识卡：《${card.title}》${status}`);
-    }
-  }
-  line();
+
+const [command = "report", ...rest] = positionals;
+const db = openStore(values.db);
+
+switch (command) {
+  case "report":
+    if (!values["no-sync"]) syncMetricBridge(db, true);
+    report(db);
+    break;
+  case "sync":
+    syncMetricBridge(db, false);
+    break;
+  case "import":
+    await importExport(db, rest[0]);
+    break;
+  default:
+    fail(`不认识的命令：${command}。可用命令：report、sync、import`);
 }
+
+db.close();

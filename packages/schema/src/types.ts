@@ -30,6 +30,8 @@ export interface Activity {
   elevationGainM: number | null;
   avgPowerW: number | null;
   strideM: number | null;
+  /** 同一次运动出现在多个数据源时，合并后记录所有来源，例如 ["metricbridge", "apple-export"] */
+  mergedFrom?: string[];
 }
 
 /** 每日指标：指标名 → 日期（YYYY-MM-DD）→ 数值 */
