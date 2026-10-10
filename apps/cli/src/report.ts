@@ -1,7 +1,9 @@
 // 训练报告：心率区间、最近的跑步、教练建议。数据从本地数据库读取。
 
-import type { Activity, DailyMetrics } from "#schema";
-import { fmtPace, localDate, paceOf, shortDate } from "#engine/format.ts";
+import type { Activity, DailyMetrics, RaceGoal } from "#schema";
+import { distanceName, fmtDuration, fmtPace, localDate, paceOf, shortDate } from "#engine/format.ts";
+import { assessGoal, type GoalStatus } from "#engine/goals/progress.ts";
+import { weeklyVolume } from "#engine/metrics/volume.ts";
 import { ZONES, estimateHrMax, zoneOf, zoneRange } from "#engine/metrics/hrZones.ts";
 import { runRules } from "#engine/rules/index.ts";
 import { loadCard } from "#knowledge";
@@ -15,7 +17,17 @@ export interface ReportInput {
   now: Date;
   timeZone: string;
   hrmax: number | null;
+  goal: RaceGoal | null;
 }
+
+const STATUS_TEXT: Record<GoalStatus, string> = {
+  achieved: "已达成",
+  "on-track": "进度正常",
+  behind: "进度落后",
+  "no-trend": "暂时无法预测",
+  "no-data": "最近 4 周没有可用的跑步",
+  expired: "已过截止日",
+};
 
 const SOURCE_NAMES: Record<string, string> = {
   metricbridge: "MetricBridge",
@@ -38,6 +50,54 @@ function latest(byDate: Record<string, number> | undefined): number | null {
   return last ? byDate[last] : null;
 }
 
+function printGoal(input: ReportInput) {
+  const { goal, now, timeZone } = input;
+  if (!goal) {
+    line("目标：还没有设置。例如：npm run goal -- set --distance 5 --time 30:00 --by 2026-11-30");
+    line();
+    return;
+  }
+  const p = assessGoal(goal, input.activities, now);
+  const day = (iso: string) => shortDate(localDate(iso, timeZone));
+  const weeks = p.weeksLeft > 0 ? `，还剩 ${p.weeksLeft.toFixed(1)} 周` : "";
+  line(
+    `目标：${distanceName(goal.distanceM)} 跑进 ${fmtDuration(goal.targetSec)}` +
+      `（截止 ${shortDate(goal.deadline)}${weeks}）· ${STATUS_TEXT[p.status]}`,
+  );
+  if (p.current) {
+    const a = p.current.activity;
+    const km = a.distanceM ? `${(a.distanceM / 1000).toFixed(2)} km` : "";
+    const gap = p.gapSec != null && p.gapSec > 0 ? ` · 还差 ${fmtDuration(p.gapSec)}` : "";
+    line(`  当前水平：折合 ${fmtDuration(p.current.equivalentSec)}（${day(a.start)} 那次 ${km}）${gap}`);
+  }
+  if (p.bestEver && p.bestEver !== p.current) {
+    line(
+      `  历史最好：折合 ${fmtDuration(p.bestEver.equivalentSec)}` +
+        `（${localDate(p.bestEver.activity.start, timeZone)}）`,
+    );
+  }
+  if (p.ratePerWeek != null && p.requiredPerWeek != null) {
+    const rate =
+      p.ratePerWeek > 0 ? `每周快约 ${Math.round(p.ratePerWeek)} 秒` : "最近 4 周没有比之前更快";
+    line(`  进步速度：${rate}；按期达成需要每周快约 ${Math.round(p.requiredPerWeek)} 秒`);
+  }
+  if (p.projectedMs != null) {
+    line(`  预测：按当前趋势，${day(new Date(p.projectedMs).toISOString())} 前后达成`);
+  }
+  line();
+}
+
+function printVolume(input: ReportInput) {
+  const weeks = weeklyVolume(input.activities, input.now, 6);
+  line("最近 6 周跑量（每 7 天）");
+  for (const w of weeks) {
+    const end = shortDate(localDate(new Date(w.endMs).toISOString(), input.timeZone));
+    const bar = "█".repeat(Math.round(w.km / 2));
+    line(`  截至 ${pad(end, 6)}${pad(`${w.km.toFixed(1)} km`, 10)}${pad(`${w.runs} 次`, 6)}${bar}`);
+  }
+  line();
+}
+
 export function printReport(input: ReportInput) {
   const { activities, now, timeZone, days } = input;
   const fmtTime = (iso: string) =>
@@ -49,6 +109,8 @@ export function printReport(input: ReportInput) {
     line(`  ${SOURCE_NAMES[s.source] ?? s.source}：${when}`);
   }
   line();
+
+  printGoal(input);
 
   const runs = activities.filter((a) => a.sport === "running");
   if (runs.length === 0) {
@@ -119,8 +181,10 @@ export function printReport(input: ReportInput) {
   }
   line();
 
+  printVolume(input);
+
   // 教练建议
-  const insights = runRules({ activities, hrMax: hrMax.value, now, timeZone });
+  const insights = runRules({ activities, hrMax: hrMax.value, now, timeZone, goal: input.goal });
   line("建议");
   if (insights.length === 0) line("  目前没有需要调整的地方，继续保持。");
   for (const ins of insights) {

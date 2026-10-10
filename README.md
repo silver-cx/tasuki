@@ -1,5 +1,7 @@
 # Tasuki 襷
 
+[![测试](https://github.com/silver-cx/tasuki/actions/workflows/test.yml/badge.svg)](https://github.com/silver-cx/tasuki/actions/workflows/test.yml)
+
 > 陪你把目标一棒一棒跑完的开源跑步教练。
 
 襷（たすき）是箱根驿传里一棒传一棒的接力带。
@@ -59,6 +61,16 @@ npm run import -- ~/Downloads/导出.zip
 
 同一次跑步同时出现在两个来源时，会自动合并成一条，互相补全缺失的字段。重复导入也不会产生重复记录。
 
+### 设定目标
+
+```bash
+npm run goal -- set --distance 5 --time 30:00 --by 2026-11-30
+```
+
+之后每次 `npm run report`，第一部分就是目标进度：当前水平、还差多少、按最近的进步速度预计哪天达成。赶不上时会给出两个选择：调整训练，或调整目标。
+
+`--distance` 填公里数，也可以填 `半马`、`全马`。查看当前目标用 `npm run goal`，取消用 `npm run goal -- clear`。
+
 ### 常用参数
 
 ```bash
@@ -72,6 +84,7 @@ npm run sync                       # 只同步 MetricBridge
 
 ```bash
 npm run import -- fixtures/apple-export-sample --db data/demo.db
+npm run goal -- set --distance 5 --time 30:00 --by 2026-11-30 --db data/demo.db --now 2026-09-01
 npm run report -- --db data/demo.db --data fixtures/metricbridge-sample --now 2026-10-01
 ```
 
@@ -85,7 +98,8 @@ packages/
     apple-export/            读取健康 App 官方导出包
   store/                     本地数据库（SQLite），跨来源合并
   engine/
-    metrics/                 心率区间等指标计算
+    metrics/                 心率区间、成绩换算、跑量
+    goals/                   目标进度与达成预测
     rules/                   教练规则，一条规则一个文件，每条都有测试
   knowledge/cards/           知识卡（Markdown），需人工审核后才算正式内容
 apps/cli/                    命令行入口
@@ -97,7 +111,7 @@ tests/                       测试（npm test）
 
 - [x] 里程碑 1：读取 MetricBridge 数据，心率区间分析，第一条规则和知识卡
 - [x] 里程碑 2：本地数据库，导入健康 App 官方导出包补全历史
-- [ ] 里程碑 3：目标设置与达成预测（5 km 成绩趋势）
+- [x] 里程碑 3：目标设置与达成预测（5 km 成绩趋势），跑量增长提醒
 - [ ] 里程碑 4：私人网页看板
 - [ ] 里程碑 5：后台自动同步，更多规则和知识卡
 - [ ] 之后：公开汇总页、Strava / Garmin 等数据源

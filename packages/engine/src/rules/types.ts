@@ -1,7 +1,7 @@
 // 规则的输入和输出。
 // 规则是纯函数：同样的输入一定得到同样的建议，所以每条规则都能写测试，也能解释。
 
-import type { Activity } from "#schema";
+import type { Activity, RaceGoal } from "#schema";
 
 export interface RuleContext {
   /** 所有运动记录，已按时间排序 */
@@ -12,6 +12,8 @@ export interface RuleContext {
   now: Date;
   /** 用户所在时区，例如 "Asia/Shanghai" */
   timeZone: string;
+  /** 当前的成绩目标，没有设置时为 null */
+  goal?: RaceGoal | null;
 }
 
 /** 一条建议依据的一次运动 */

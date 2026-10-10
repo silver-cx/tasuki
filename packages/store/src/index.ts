@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { Activity, DailyMetrics, HealthSnapshot } from "#schema";
+import type { Activity, DailyMetrics, HealthSnapshot, RaceGoal } from "#schema";
 
 export const DEFAULT_DB = path.join(process.cwd(), "data", "tasuki.db");
 
@@ -52,6 +52,16 @@ export function openStore(file: string = DEFAULT_DB): Store {
       source TEXT NOT NULL,
       value REAL NOT NULL,
       PRIMARY KEY (metric, date, source)
+    );
+    CREATE TABLE IF NOT EXISTS goals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind TEXT NOT NULL,
+      distance_m REAL NOT NULL,
+      target_sec REAL NOT NULL,
+      start_date TEXT NOT NULL,
+      deadline TEXT NOT NULL,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS sync_log (
       source TEXT PRIMARY KEY,
@@ -208,4 +218,48 @@ export function loadSyncLog(db: Store): SyncInfo[] {
     exportedAt: r.exported_at,
     syncedAt: r.synced_at,
   }));
+}
+
+// ---------- 目标 ----------
+// 一期同一时间只有一个进行中的成绩目标；设新目标时，旧目标自动归档（保留历史）。
+
+export function setRaceGoal(
+  db: Store,
+  goal: Omit<RaceGoal, "id">,
+): RaceGoal {
+  db.exec("BEGIN");
+  try {
+    db.prepare("UPDATE goals SET active = 0 WHERE active = 1 AND kind = 'race'").run();
+    const r = db
+      .prepare(
+        `INSERT INTO goals (kind, distance_m, target_sec, start_date, deadline, active, created_at)
+         VALUES ('race', ?, ?, ?, ?, 1, ?)`,
+      )
+      .run(goal.distanceM, goal.targetSec, goal.startDate, goal.deadline, new Date().toISOString());
+    db.exec("COMMIT");
+    return { id: Number(r.lastInsertRowid), ...goal };
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+}
+
+export function loadRaceGoal(db: Store): RaceGoal | null {
+  const r = db
+    .prepare("SELECT * FROM goals WHERE active = 1 AND kind = 'race' ORDER BY id DESC LIMIT 1")
+    .get() as any;
+  if (!r) return null;
+  return {
+    id: r.id,
+    distanceM: r.distance_m,
+    targetSec: r.target_sec,
+    startDate: r.start_date,
+    deadline: r.deadline,
+  };
+}
+
+/** 归档当前目标，返回是否有目标被归档 */
+export function clearRaceGoal(db: Store): boolean {
+  const r = db.prepare("UPDATE goals SET active = 0 WHERE active = 1 AND kind = 'race'").run();
+  return Number(r.changes) > 0;
 }

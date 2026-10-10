@@ -20,6 +20,7 @@
     "report": "node --disable-warning=ExperimentalWarning apps/cli/src/main.ts report",
     "sync": "node --disable-warning=ExperimentalWarning apps/cli/src/main.ts sync",
     "import": "node --disable-warning=ExperimentalWarning apps/cli/src/main.ts import",
+    "goal": "node --disable-warning=ExperimentalWarning apps/cli/src/main.ts goal",
     "test": "node --disable-warning=ExperimentalWarning --test \"tests/**/*.test.ts\""
   }
 }

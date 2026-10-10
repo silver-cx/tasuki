@@ -34,6 +34,17 @@ export interface Activity {
   mergedFrom?: string[];
 }
 
+/** 成绩目标：在截止日前，用不超过 targetSec 的时间跑完 distanceM */
+export interface RaceGoal {
+  id: number;
+  distanceM: number;
+  targetSec: number;
+  /** 设定目标的日期 YYYY-MM-DD */
+  startDate: string;
+  /** 截止日期 YYYY-MM-DD（含当天） */
+  deadline: string;
+}
+
 /** 每日指标：指标名 → 日期（YYYY-MM-DD）→ 数值 */
 export type DailyMetrics = Record<string, Record<string, number>>;
 
