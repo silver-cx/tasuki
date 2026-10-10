@@ -53,3 +53,24 @@ export function distanceName(m: number): string {
   const km = m / 1000;
   return `${Number.isInteger(km) ? km : km.toFixed(1)} km`;
 }
+
+// ---------- 日期运算（只处理 "YYYY-MM-DD" 字符串，按日历日计算，不受时区影响） ----------
+
+/** "2026-10-11" + 3 → "2026-10-14" */
+export function addDays(ymd: string, days: number): string {
+  const t = Date.UTC(+ymd.slice(0, 4), +ymd.slice(5, 7) - 1, +ymd.slice(8, 10)) + days * 864e5;
+  return new Date(t).toISOString().slice(0, 10);
+}
+
+/** 星期几：1 = 周一 … 7 = 周日 */
+export function isoWeekday(ymd: string): number {
+  const d = new Date(`${ymd}T00:00:00Z`).getUTCDay();
+  return d === 0 ? 7 : d;
+}
+
+/** 这一天所在那周的周一 */
+export function mondayOf(ymd: string): string {
+  return addDays(ymd, 1 - isoWeekday(ymd));
+}
+
+export const WEEKDAY_NAMES = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"];

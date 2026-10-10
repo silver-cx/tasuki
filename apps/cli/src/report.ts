@@ -1,24 +1,13 @@
-// 训练报告：心率区间、最近的跑步、教练建议。数据从本地数据库读取。
+// 训练报告：目标进度、本周计划、心率区间、最近的跑步、跑量、教练建议。数据从本地数据库读取。
 
-import type { Activity, DailyMetrics, RaceGoal } from "#schema";
-import { distanceName, fmtDuration, fmtPace, localDate, paceOf, shortDate } from "#engine/format.ts";
+import { addDays, distanceName, fmtDuration, fmtPace, localDate, mondayOf, paceOf, shortDate } from "#engine/format.ts";
 import { assessGoal, type GoalStatus } from "#engine/goals/progress.ts";
+import { ZONES, zoneOf, zoneRange } from "#engine/metrics/hrZones.ts";
 import { weeklyVolume } from "#engine/metrics/volume.ts";
-import { ZONES, estimateHrMax, zoneOf, zoneRange } from "#engine/metrics/hrZones.ts";
 import { runRules } from "#engine/rules/index.ts";
 import { loadCard } from "#knowledge";
-import type { SyncInfo } from "#store";
-
-export interface ReportInput {
-  activities: Activity[];
-  daily: DailyMetrics;
-  syncLog: SyncInfo[];
-  days: number;
-  now: Date;
-  timeZone: string;
-  hrmax: number | null;
-  goal: RaceGoal | null;
-}
+import type { Context } from "./context.ts";
+import { line, pad, printWeek } from "./print.ts";
 
 const STATUS_TEXT: Record<GoalStatus, string> = {
   achieved: "已达成",
@@ -34,30 +23,14 @@ const SOURCE_NAMES: Record<string, string> = {
   "apple-export": "健康 App 导出包",
 };
 
-function line(text = "") {
-  console.log(text);
-}
-
-/** 按显示宽度补空格（中文字符算两个宽度），保证表格对齐 */
-function pad(text: string, width: number) {
-  const w = [...text].reduce((n, ch) => n + (/[　-￿]/.test(ch) ? 2 : 1), 0);
-  return text + " ".repeat(Math.max(0, width - w));
-}
-
-function latest(byDate: Record<string, number> | undefined): number | null {
-  if (!byDate) return null;
-  const last = Object.keys(byDate).sort().at(-1);
-  return last ? byDate[last] : null;
-}
-
-function printGoal(input: ReportInput) {
-  const { goal, now, timeZone } = input;
+function printGoal(ctx: Context) {
+  const { goal, now, timeZone } = ctx;
   if (!goal) {
     line("目标：还没有设置。例如：npm run goal -- set --distance 5 --time 30:00 --by 2026-11-30");
     line();
     return;
   }
-  const p = assessGoal(goal, input.activities, now);
+  const p = assessGoal(goal, ctx.activities, now, ctx.tests);
   const day = (iso: string) => shortDate(localDate(iso, timeZone));
   const weeks = p.weeksLeft > 0 ? `，还剩 ${p.weeksLeft.toFixed(1)} 周` : "";
   line(
@@ -67,8 +40,9 @@ function printGoal(input: ReportInput) {
   if (p.current) {
     const a = p.current.activity;
     const km = a.distanceM ? `${(a.distanceM / 1000).toFixed(2)} km` : "";
+    const from = p.basis === "test" ? `${day(a.start)} 测试跑` : `${day(a.start)} 那次 ${km}`;
     const gap = p.gapSec != null && p.gapSec > 0 ? ` · 还差 ${fmtDuration(p.gapSec)}` : "";
-    line(`  当前水平：折合 ${fmtDuration(p.current.equivalentSec)}（${day(a.start)} 那次 ${km}）${gap}`);
+    line(`  当前水平：折合 ${fmtDuration(p.current.equivalentSec)}（${from}）${gap}`);
   }
   if (p.bestEver && p.bestEver !== p.current) {
     line(
@@ -77,40 +51,62 @@ function printGoal(input: ReportInput) {
     );
   }
   if (p.ratePerWeek != null && p.requiredPerWeek != null) {
-    const rate =
-      p.ratePerWeek > 0 ? `每周快约 ${Math.round(p.ratePerWeek)} 秒` : "最近 4 周没有比之前更快";
+    const rate = p.ratePerWeek > 0 ? `每周快约 ${Math.round(p.ratePerWeek)} 秒` : "最近没有比之前更快";
     line(`  进步速度：${rate}；按期达成需要每周快约 ${Math.round(p.requiredPerWeek)} 秒`);
   }
   if (p.projectedMs != null) {
     line(`  预测：按当前趋势，${day(new Date(p.projectedMs).toISOString())} 前后达成`);
   }
+  const nextTest = ctx.matches.find((m) => m.session.kind === "test" && m.status !== "done" && m.session.date >= ctx.today);
+  if (nextTest) line(`  下一次测试跑：${shortDate(nextTest.session.date)}`);
   line();
 }
 
-function printVolume(input: ReportInput) {
-  const weeks = weeklyVolume(input.activities, input.now, 6);
+function printPlan(ctx: Context) {
+  if (!ctx.goal) return;
+  if (ctx.plan.length === 0) {
+    line("训练计划：还没有生成。运行 npm run plan 生成到截止日的计划。");
+    line();
+    return;
+  }
+  // 本周已经没有课（比如周日刚生成计划），就显示下周
+  const sunday = addDays(mondayOf(ctx.today), 6);
+  const thisWeek = ctx.matches.some((m) => m.session.date >= mondayOf(ctx.today) && m.session.date <= sunday);
+  if (thisWeek) printWeek(ctx, ctx.today, "本周计划");
+  else printWeek(ctx, addDays(sunday, 1), "下周计划");
+  const next = ctx.matches.find((m) => m.status === "today" || m.status === "upcoming");
+  if (next) {
+    const when = next.status === "today" ? "今天" : shortDate(next.session.date);
+    line(`  下一次（${when}）：${next.session.title}`);
+    line(`    ${next.session.detail}`);
+  }
+  line();
+}
+
+function printVolume(ctx: Context) {
+  const weeks = weeklyVolume(ctx.activities, ctx.now, 6);
   line("最近 6 周跑量（每 7 天）");
   for (const w of weeks) {
-    const end = shortDate(localDate(new Date(w.endMs).toISOString(), input.timeZone));
+    const end = shortDate(localDate(new Date(w.endMs).toISOString(), ctx.timeZone));
     const bar = "█".repeat(Math.round(w.km / 2));
     line(`  截至 ${pad(end, 6)}${pad(`${w.km.toFixed(1)} km`, 10)}${pad(`${w.runs} 次`, 6)}${bar}`);
   }
   line();
 }
 
-export function printReport(input: ReportInput) {
-  const { activities, now, timeZone, days } = input;
-  const fmtTime = (iso: string) =>
-    new Date(iso).toLocaleString("zh-CN", { timeZone, hour12: false });
+export function printReport(ctx: Context, days: number) {
+  const { activities, now, timeZone } = ctx;
+  const fmtTime = (iso: string) => new Date(iso).toLocaleString("zh-CN", { timeZone, hour12: false });
 
   line("Tasuki · 训练报告");
-  for (const s of input.syncLog) {
+  for (const s of ctx.syncLog) {
     const when = s.exportedAt ? `数据截至 ${fmtTime(s.exportedAt)}` : `导入于 ${fmtTime(s.syncedAt)}`;
     line(`  ${SOURCE_NAMES[s.source] ?? s.source}：${when}`);
   }
   line();
 
-  printGoal(input);
+  printGoal(ctx);
+  printPlan(ctx);
 
   const runs = activities.filter((a) => a.sport === "running");
   if (runs.length === 0) {
@@ -124,11 +120,7 @@ export function printReport(input: ReportInput) {
       `最早 ${localDate(runs[0].start, timeZone)}；其中 ${withHr.length} 次带心率。`,
   );
 
-  const hrMax = estimateHrMax({
-    age: latest(input.daily.age),
-    activities: runs,
-    manual: input.hrmax,
-  });
+  const hrMax = ctx.hrMax;
   if (!hrMax) {
     line("没有年龄，也没有心率数据，暂时无法划分心率区间。可以用 --hrmax 手动指定最大心率。");
     return;
@@ -152,9 +144,7 @@ export function printReport(input: ReportInput) {
 
   // 最近 N 天的跑步明细
   const since = now.getTime() - days * 864e5;
-  const recent = runs.filter(
-    (a) => Date.parse(a.start) >= since && Date.parse(a.start) <= now.getTime(),
-  );
+  const recent = runs.filter((a) => Date.parse(a.start) >= since && Date.parse(a.start) <= now.getTime());
   line(`最近 ${days} 天的跑步（按平均心率归入区间）`);
   if (recent.length === 0) {
     line("  这段时间没有跑步。");
@@ -173,7 +163,8 @@ export function printReport(input: ReportInput) {
         hr = String(Math.round(a.avgHr));
         zone = `${z.zone} 区 ${z.name}（${Math.floor((a.avgHr / hrMax.value) * 100)}%）`;
       }
-      line(`  ${pad(date, 7)}${pad(km, 10)}${pad(pace, 7)}${pad(hr, 10)}${zone}`);
+      const tag = ctx.qualityIds?.has(a.id) ? " · 质量课" : "";
+      line(`  ${pad(date, 7)}${pad(km, 10)}${pad(pace, 7)}${pad(hr, 10)}${zone}${tag}`);
     }
     if (counts.size > 0) {
       line("  分布：" + ZONES.map((z) => `${z.zone} 区 ${counts.get(z.zone) ?? 0} 次`).join(" · "));
@@ -181,10 +172,18 @@ export function printReport(input: ReportInput) {
   }
   line();
 
-  printVolume(input);
+  printVolume(ctx);
 
   // 教练建议
-  const insights = runRules({ activities, hrMax: hrMax.value, now, timeZone, goal: input.goal });
+  const insights = runRules({
+    activities,
+    hrMax: hrMax.value,
+    now,
+    timeZone,
+    goal: ctx.goal,
+    tests: ctx.tests,
+    qualityActivityIds: ctx.qualityIds,
+  });
   line("建议");
   if (insights.length === 0) line("  目前没有需要调整的地方，继续保持。");
   for (const ins of insights) {
@@ -196,10 +195,7 @@ export function printReport(input: ReportInput) {
       line(
         "    依据：" +
           flagged
-            .map(
-              (e) =>
-                `${shortDate(e.date)} 心率 ${e.avgHr}（${Math.floor((e.pctOfMax ?? 0) * 100)}%）`,
-            )
+            .map((e) => `${shortDate(e.date)} 心率 ${e.avgHr}（${Math.floor((e.pctOfMax ?? 0) * 100)}%）`)
             .join("，"),
       );
     }

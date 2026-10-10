@@ -21,6 +21,7 @@
     "sync": "node --disable-warning=ExperimentalWarning apps/cli/src/main.ts sync",
     "import": "node --disable-warning=ExperimentalWarning apps/cli/src/main.ts import",
     "goal": "node --disable-warning=ExperimentalWarning apps/cli/src/main.ts goal",
+    "plan": "node --disable-warning=ExperimentalWarning apps/cli/src/main.ts plan",
     "test": "node --disable-warning=ExperimentalWarning --test \"tests/**/*.test.ts\""
   }
 }

@@ -45,6 +45,26 @@ export interface RaceGoal {
   deadline: string;
 }
 
+/** 训练课的类型 */
+export type SessionKind = "easy" | "long" | "intervals" | "tempo" | "test";
+
+/** 训练计划里的一次课 */
+export interface PlannedSession {
+  /** 日期 YYYY-MM-DD（用户所在时区） */
+  date: string;
+  kind: SessionKind;
+  /** 一行标题，例如 "间歇跑 5 × 800 米" */
+  title: string;
+  /** 含热身和放松的总距离（公里） */
+  distanceKm: number;
+  /** 怎么跑：几句具体说明 */
+  detail: string;
+  /** 心率上限（轻松跑、长距离），没有则为 null */
+  hrCap: number | null;
+  /** 目标配速（秒/公里），没有则为 null */
+  paceSecPerKm: number | null;
+}
+
 /** 每日指标：指标名 → 日期（YYYY-MM-DD）→ 数值 */
 export type DailyMetrics = Record<string, Record<string, number>>;
 

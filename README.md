@@ -71,6 +71,26 @@ npm run goal -- set --distance 5 --time 30:00 --by 2026-11-30
 
 `--distance` 填公里数，也可以填 `半马`、`全马`。查看当前目标用 `npm run goal`，取消用 `npm run goal -- clear`。
 
+### 训练计划
+
+设定目标时会自动生成一份到截止日的训练计划：
+
+```bash
+npm run plan                        # 重新生成并查看计划（从明天开始）
+npm run plan -- show                # 只查看
+npm run plan -- --weekdays 2,4,6    # 改成每周二、四、六跑（1 = 周一 … 7 = 周日）
+```
+
+计划是怎么排的：
+
+- **每 3 周一次全力测试跑**，从截止日往前排：最后一次就是冲击目标，第一次用来测出真实的起点。有了测试成绩，目标进度就不再依赖训练跑的估算。
+- **训练周**：1 次质量课（间歇跑和节奏跑交替）+ 1 次长距离慢跑 + 轻松跑。轻松跑和长距离有心率上限，质量课有目标配速。
+- **跑量**每周增加约 10%，测试周和最后一周减量。
+- 你跑完之后，报告会自动把实际跑步对上计划里的课（✓ 完成 / ✗ 未完成），并把质量课从“轻松跑心率偏高”的判断中排除。
+- 每次测试后运行 `npm run plan`，后面的配速和跑量会按新成绩更新。
+
+这是一套简单、可解释的规则模板，不是个性化的教练处方。身体不适时请休息或咨询专业人士。
+
 ### 常用参数
 
 ```bash
@@ -84,7 +104,7 @@ npm run sync                       # 只同步 MetricBridge
 
 ```bash
 npm run import -- fixtures/apple-export-sample --db data/demo.db
-npm run goal -- set --distance 5 --time 30:00 --by 2026-11-30 --db data/demo.db --now 2026-09-01
+npm run goal -- set --distance 5 --time 30:00 --by 2026-11-30 --db data/demo.db --now 2026-09-20
 npm run report -- --db data/demo.db --data fixtures/metricbridge-sample --now 2026-10-01
 ```
 
@@ -100,6 +120,7 @@ packages/
   engine/
     metrics/                 心率区间、成绩换算、跑量
     goals/                   目标进度与达成预测
+    plan/                    训练计划生成，以及实际跑步与计划的匹配
     rules/                   教练规则，一条规则一个文件，每条都有测试
   knowledge/cards/           知识卡（Markdown），需人工审核后才算正式内容
 apps/cli/                    命令行入口
@@ -112,8 +133,9 @@ tests/                       测试（npm test）
 - [x] 里程碑 1：读取 MetricBridge 数据，心率区间分析，第一条规则和知识卡
 - [x] 里程碑 2：本地数据库，导入健康 App 官方导出包补全历史
 - [x] 里程碑 3：目标设置与达成预测（5 km 成绩趋势），跑量增长提醒
-- [ ] 里程碑 4：私人网页看板
-- [ ] 里程碑 5：后台自动同步，更多规则和知识卡
+- [x] 里程碑 4：训练计划（定期测试跑、质量课识别、完成情况）
+- [ ] 里程碑 5：私人网页看板
+- [ ] 里程碑 6：后台自动同步，更多规则和知识卡
 - [ ] 之后：公开汇总页、Strava / Garmin 等数据源
 
 ## 说明

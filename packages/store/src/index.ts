@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { Activity, DailyMetrics, HealthSnapshot, RaceGoal } from "#schema";
+import type { Activity, DailyMetrics, HealthSnapshot, PlannedSession, RaceGoal } from "#schema";
 
 export const DEFAULT_DB = path.join(process.cwd(), "data", "tasuki.db");
 
@@ -61,6 +61,17 @@ export function openStore(file: string = DEFAULT_DB): Store {
       start_date TEXT NOT NULL,
       deadline TEXT NOT NULL,
       active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS plan_sessions (
+      date TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      title TEXT NOT NULL,
+      distance_km REAL NOT NULL,
+      detail TEXT NOT NULL,
+      hr_cap REAL,
+      pace_sec REAL,
+      goal_id INTEGER,
       created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS sync_log (
@@ -262,4 +273,61 @@ export function loadRaceGoal(db: Store): RaceGoal | null {
 export function clearRaceGoal(db: Store): boolean {
   const r = db.prepare("UPDATE goals SET active = 0 WHERE active = 1 AND kind = 'race'").run();
   return Number(r.changes) > 0;
+}
+
+// ---------- 训练计划 ----------
+// 重新生成计划时，只替换 fromDate 及以后的课；过去的课保留，用于统计完成情况。
+
+export function savePlan(
+  db: Store,
+  sessions: PlannedSession[],
+  fromDate: string,
+  goalId: number | null,
+): void {
+  const now = new Date().toISOString();
+  const insert = db.prepare(
+    `INSERT OR REPLACE INTO plan_sessions
+       (date, kind, title, distance_km, detail, hr_cap, pace_sec, goal_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  db.exec("BEGIN");
+  try {
+    db.prepare("DELETE FROM plan_sessions WHERE date >= ?").run(fromDate);
+    for (const s of sessions) {
+      if (s.date < fromDate) continue;
+      insert.run(s.date, s.kind, s.title, s.distanceKm, s.detail, s.hrCap, s.paceSecPerKm, goalId, now);
+    }
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+}
+
+export function loadPlan(db: Store): PlannedSession[] {
+  return (db.prepare("SELECT * FROM plan_sessions ORDER BY date").all() as any[]).map((r) => ({
+    date: r.date,
+    kind: r.kind,
+    title: r.title,
+    distanceKm: r.distance_km,
+    detail: r.detail,
+    hrCap: r.hr_cap,
+    paceSecPerKm: r.pace_sec,
+  }));
+}
+
+/** 删除 fromDate 及以后的计划（取消目标时用） */
+export function clearPlan(db: Store, fromDate: string): void {
+  db.prepare("DELETE FROM plan_sessions WHERE date >= ?").run(fromDate);
+}
+
+// ---------- 设置 ----------
+
+export function getSetting(db: Store, key: string): string | null {
+  const r = db.prepare("SELECT value FROM meta WHERE key = ?").get(`setting:${key}`) as any;
+  return r ? r.value : null;
+}
+
+export function setSetting(db: Store, key: string, value: string): void {
+  db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(`setting:${key}`, value);
 }

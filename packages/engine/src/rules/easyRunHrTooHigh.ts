@@ -4,8 +4,8 @@
 //   最近 14 天带心率的跑步里，最近一次的平均心率超过最大心率的 80%，
 //   或者至少一半（且至少 2 次）超过 80%。
 //
-// 一期还没有训练计划，无法区分“轻松跑”和“间歇、节奏跑”这类质量课，
-// 所以暂时把所有跑步都当作轻松跑。有了计划之后，要把质量课排除在外。
+// 有训练计划时，计划里的间歇跑、节奏跑和测试跑会被排除；
+// 没有计划时无法区分，暂时把所有跑步都当作轻松跑。
 
 import { fmtPace, localDate, paceOf } from "../format.ts";
 import { ZONES, zoneRange } from "../metrics/hrZones.ts";
@@ -26,6 +26,7 @@ export const easyRunHrTooHigh: Rule = {
     const runs = ctx.activities.filter(
       (a) =>
         a.sport === "running" &&
+        !ctx.qualityActivityIds?.has(a.id) &&
         a.avgHr != null &&
         Date.parse(a.start) >= since &&
         Date.parse(a.start) <= ctx.now.getTime(),
@@ -62,7 +63,9 @@ export const easyRunHrTooHigh: Rule = {
         "前几周配速会明显变慢，这是正常的；坚持下来，同样心率下的配速通常会变快。",
       evidence,
       assumptions: [
-        "一期还没有训练计划，暂把所有跑步都当作轻松跑；间歇跑和节奏跑本来就该在高心率区间。",
+        ctx.qualityActivityIds
+          ? "计划里的间歇跑、节奏跑和测试跑已排除，只看其余跑步。"
+          : "还没有训练计划，暂把所有跑步都当作轻松跑；间歇跑和节奏跑本来就该在高心率区间。",
         "心率区间按最大心率百分比估算，最大心率可以手动校准。",
       ],
       cardId: "easy-run-slow",

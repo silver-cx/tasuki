@@ -2,6 +2,7 @@
 // 规则是纯函数：同样的输入一定得到同样的建议，所以每条规则都能写测试，也能解释。
 
 import type { Activity, RaceGoal } from "#schema";
+import type { Effort } from "../metrics/performance.ts";
 
 export interface RuleContext {
   /** 所有运动记录，已按时间排序 */
@@ -14,6 +15,10 @@ export interface RuleContext {
   timeZone: string;
   /** 当前的成绩目标，没有设置时为 null */
   goal?: RaceGoal | null;
+  /** 训练计划里已完成的测试跑（换算成目标距离） */
+  tests?: Effort[];
+  /** 有训练计划时：被识别为质量课（间歇、节奏、测试）的跑步 ID */
+  qualityActivityIds?: Set<string> | null;
 }
 
 /** 一条建议依据的一次运动 */

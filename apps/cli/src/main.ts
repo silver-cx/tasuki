@@ -5,13 +5,16 @@
 //   npm run sync                      只同步 MetricBridge 数据
 //   npm run import -- <导出包路径>     导入健康 App 的官方导出包（zip 或解压后的文件夹）
 //   npm run goal                      查看当前目标
-//   npm run goal -- set --distance 5 --time 30:00 --by 2026-11-30   设置成绩目标
-//   npm run goal -- clear             取消当前目标
+//   npm run goal -- set --distance 5 --time 30:00 --by 2026-11-30   设置成绩目标（同时生成训练计划）
+//   npm run goal -- clear             取消当前目标（同时清除之后的计划）
+//   npm run plan                      按目标重新生成训练计划（从明天开始），并显示每周课表
+//   npm run plan -- show              只查看，不重新生成
+//   npm run plan -- --weekdays 2,4,6  设置每周跑步的日子（1 = 周一 … 7 = 周日），并重新生成
 //
 // 通用参数：
 //   --db <文件>       数据库位置（默认 data/tasuki.db）
 //   --data <文件夹>   MetricBridge 数据文件夹（默认是 iCloud 里的 MetricBridge 目录）
-//   --no-sync         report 时不先同步
+//   --no-sync         report / plan 时不先同步
 //   --days <天数>     报告覆盖最近多少天（默认 14）
 //   --hrmax <心率>    手动指定最大心率，覆盖估算
 //   --tz <时区>       默认 Asia/Shanghai
@@ -23,16 +26,16 @@ import { DEFAULT_DIR, MetricBridgeError, loadMetricBridge } from "#adapters/metr
 import { distanceName, fmtDuration, localDate, parseDuration } from "#engine/format.ts";
 import {
   DEFAULT_DB,
+  clearPlan,
   clearRaceGoal,
   loadRaceGoal,
-  setRaceGoal,
-  loadActivities,
-  loadDaily,
-  loadSyncLog,
   openStore,
   saveSnapshot,
+  setRaceGoal,
   type Store,
 } from "#store";
+import { buildContext } from "./context.ts";
+import { parseWeekdays, printPlan, regeneratePlan, setWeekdays } from "./plan.ts";
 import { printReport } from "./report.ts";
 
 const { values, positionals } = parseArgs({
@@ -48,16 +51,20 @@ const { values, positionals } = parseArgs({
     distance: { type: "string" },
     time: { type: "string" },
     by: { type: "string" },
+    weekdays: { type: "string" },
   },
 });
 
 const timeZone = values.tz as string;
 const now = values.now ? new Date(`${values.now}T23:59:59+08:00`) : new Date();
+const hrmax = values.hrmax ? Number(values.hrmax) : null;
 
 function fail(message: string): never {
   console.error(message);
   process.exit(1);
 }
+
+const context = (db: Store) => buildContext(db, { now, timeZone, hrmax });
 
 /** 从 MetricBridge 同步到数据库。quiet=true 时找不到数据只提示不报错（report 用）。 */
 function syncMetricBridge(db: Store, quiet: boolean) {
@@ -103,6 +110,7 @@ const DISTANCES: Record<string, number> = {
 };
 
 function goal(db: Store, action: string | undefined) {
+  const today = localDate(now.toISOString(), timeZone);
   if (action === "set") {
     const distanceM =
       DISTANCES[values.distance ?? ""] ?? (Number(values.distance) > 0 ? Number(values.distance) * 1000 : NaN);
@@ -111,13 +119,15 @@ function goal(db: Store, action: string | undefined) {
     if (!Number.isFinite(distanceM)) fail("--distance 填公里数（如 5、10）或 半马、全马");
     if (!targetSec) fail("--time 填目标用时，如 30:00 或 1:55:00");
     if (!/^\d{4}-\d{2}-\d{2}$/.test(deadline)) fail("--by 填截止日期，如 2026-11-30");
-    const startDate = localDate(now.toISOString(), timeZone);
-    if (deadline <= startDate) fail("截止日期需要晚于今天");
-    setRaceGoal(db, { distanceM, targetSec, startDate, deadline });
+    if (deadline <= today) fail("截止日期需要晚于今天");
+    setRaceGoal(db, { distanceM, targetSec, startDate: today, deadline });
     console.log(`已设置目标：${deadline} 前 ${distanceName(distanceM)} 跑进 ${fmtDuration(targetSec)}。`);
-    console.log("运行 npm run report 查看进度和预测。");
+    const n = regeneratePlan(db, context(db));
+    console.log(`已生成到截止日的训练计划（${n} 次课）。运行 npm run plan 查看。`);
   } else if (action === "clear") {
-    console.log(clearRaceGoal(db) ? "已取消当前目标（记录仍保留在数据库里）。" : "当前没有目标。");
+    const had = clearRaceGoal(db);
+    clearPlan(db, today);
+    console.log(had ? "已取消当前目标和之后的训练计划（历史记录仍保留）。" : "当前没有目标。");
   } else if (action == null) {
     const g = loadRaceGoal(db);
     console.log(
@@ -130,17 +140,20 @@ function goal(db: Store, action: string | undefined) {
   }
 }
 
-function report(db: Store) {
-  printReport({
-    activities: loadActivities(db),
-    daily: loadDaily(db),
-    syncLog: loadSyncLog(db),
-    days: Number(values.days),
-    now,
-    timeZone,
-    hrmax: values.hrmax ? Number(values.hrmax) : null,
-    goal: loadRaceGoal(db),
-  });
+function plan(db: Store, action: string | undefined) {
+  if (!loadRaceGoal(db)) fail("还没有设置目标。先运行：npm run goal -- set --distance 5 --time 30:00 --by 2026-11-30");
+  if (values.weekdays) {
+    const days = parseWeekdays(values.weekdays);
+    if (!days) fail("--weekdays 填 1–7 的数字，用逗号分开，例如 2,4,6（周二、周四、周六）");
+    setWeekdays(db, days);
+  }
+  if (action !== "show") {
+    if (!values["no-sync"]) syncMetricBridge(db, true);
+    regeneratePlan(db, context(db));
+  } else if (action != null && action !== "show") {
+    fail(`不认识的操作：${action}。可用：show`);
+  }
+  printPlan(db, context(db));
 }
 
 if (Number.isNaN(now.getTime())) fail("--now 的格式应为 YYYY-MM-DD，例如 2026-10-01");
@@ -151,7 +164,7 @@ const db = openStore(values.db);
 switch (command) {
   case "report":
     if (!values["no-sync"]) syncMetricBridge(db, true);
-    report(db);
+    printReport(context(db), Number(values.days));
     break;
   case "sync":
     syncMetricBridge(db, false);
@@ -162,8 +175,11 @@ switch (command) {
   case "goal":
     goal(db, rest[0]);
     break;
+  case "plan":
+    plan(db, rest[0]);
+    break;
   default:
-    fail(`不认识的命令：${command}。可用命令：report、sync、import、goal`);
+    fail(`不认识的命令：${command}。可用命令：report、sync、import、goal、plan`);
 }
 
 db.close();

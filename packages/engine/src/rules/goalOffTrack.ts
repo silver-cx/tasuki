@@ -12,7 +12,7 @@ export const goalOffTrack: Rule = {
   id: "goal-off-track",
   run(ctx: RuleContext): Insight | null {
     if (!ctx.goal) return null;
-    const p = assessGoal(ctx.goal, ctx.activities, ctx.now);
+    const p = assessGoal(ctx.goal, ctx.activities, ctx.now, ctx.tests ?? []);
     if (p.status !== "behind" && p.status !== "no-trend") return null;
     if (!p.current || p.requiredPerWeek == null) return null;
 
@@ -24,10 +24,13 @@ export const goalOffTrack: Rule = {
 
     const runDay = (iso: string) => shortDate(localDate(iso, ctx.timeZone));
     const basis =
-      `最近 4 周最好的一次是 ${runDay(p.current.activity.start)}，折合 ${name} ${fmtDuration(p.current.equivalentSec)}` +
-      (p.previous
-        ? `；之前 4 周最好的是 ${runDay(p.previous.activity.start)}，折合 ${fmtDuration(p.previous.equivalentSec)}。`
-        : "。");
+      p.basis === "test"
+        ? `${runDay(p.current.activity.start)} 的测试跑成绩折合 ${name} ${fmtDuration(p.current.equivalentSec)}` +
+          (p.previous ? `；上一次参考成绩是 ${runDay(p.previous.activity.start)} 的 ${fmtDuration(p.previous.equivalentSec)}。` : "。")
+        : `最近 4 周最好的一次是 ${runDay(p.current.activity.start)}，折合 ${name} ${fmtDuration(p.current.equivalentSec)}` +
+          (p.previous
+            ? `；之前 4 周最好的是 ${runDay(p.previous.activity.start)}，折合 ${fmtDuration(p.previous.equivalentSec)}。`
+            : "。");
     let finding: string;
     let adjust: string;
     if (p.status === "behind" && p.ratePerWeek != null && p.projectedMs != null) {
@@ -58,12 +61,17 @@ export const goalOffTrack: Rule = {
       title: `${name} 目标进度落后`,
       finding,
       suggestion:
-        "两个选择：① 保持目标：每周安排 1 次间歇跑或节奏跑专门提速，其余跑步放慢到轻松强度，" +
-        `每周跑量增幅不超过约 10%。② 调整目标：${adjust}`,
+        (ctx.qualityActivityIds
+          ? "两个选择：① 保持目标：按训练计划执行（npm run plan），重点完成每周的质量课和测试跑，轻松跑守住心率上限。"
+          : "两个选择：① 保持目标：每周安排 1 次间歇跑或节奏跑专门提速，其余跑步放慢到轻松强度，" +
+            "每周跑量增幅不超过约 10%；运行 npm run plan 可以生成具体计划。") +
+        `② 调整目标：${adjust}`,
       evidence: [],
       assumptions: [
-        "当前水平取最近 4 周换算成绩最好的一次（Riegel 公式）。训练跑大多不是全力跑，正式测试或比赛通常会更快。",
-        "进步速度按最近 4 周与之前 4 周的最好成绩线性外推；样本少时波动大，越接近能力上限进步越慢。",
+        p.basis === "test"
+          ? "当前水平来自计划里最近一次测试跑（全力跑），比训练跑估算更可靠。"
+          : "当前水平取最近 4 周换算成绩最好的一次（Riegel 公式）。训练跑大多不是全力跑，测试跑之后会更准。",
+        "进步速度线性外推；样本少时波动大，越接近能力上限进步越慢。",
       ],
       cardId: "improve-5k",
     };

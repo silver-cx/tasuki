@@ -1,16 +1,21 @@
 // 目标进度与达成预测。
 //
 // 做法（每一步都可以解释给用户）：
-//   1. 当前水平 = 最近 4 周里换算成绩最好的一次
-//   2. 4 周前水平 = 再往前 4 周里最好的一次
-//   3. 进步速度 = 两者之差 ÷ 4（秒/周）
-//   4. 按这个速度线性外推，算出预计达成日，与截止日比较
+//   1. 当前水平：最近 6 周内有测试跑时，用最近一次测试成绩；
+//      否则用最近 4 周里换算成绩最好的一次训练跑。
+//   2. 进步速度：有 2 次以上测试时，用最近两次测试之差 ÷ 间隔周数；
+//      否则用“最近 4 周最好”与“之前 4 周最好”之差 ÷ 4（秒/周）。
+//   3. 按这个速度线性外推，算出预计达成日，与截止日比较。
 // 线性外推是简化：越接近能力上限进步越慢，所以预测偏乐观，越远越不准。
 
 import type { Activity, RaceGoal } from "#schema";
 import { bestBetween, efforts, type Effort } from "../metrics/performance.ts";
 
+export type { Effort };
+
 export const WINDOW_DAYS = 28;
+/** 测试成绩在这么多天内都算“当前水平” */
+export const TEST_VALID_DAYS = 42;
 const DAY = 864e5;
 const WEEK = 7 * DAY;
 
@@ -25,6 +30,8 @@ export type GoalStatus =
 export interface GoalProgress {
   goal: RaceGoal;
   status: GoalStatus;
+  /** 当前水平来自测试跑还是训练跑 */
+  basis: "test" | "training";
   current: Effort | null;
   previous: Effort | null;
   /** 历史最好（全部记录） */
@@ -47,16 +54,38 @@ export function deadlineMs(deadline: string): number {
   return Date.parse(`${deadline}T23:59:59Z`);
 }
 
-export function assessGoal(goal: RaceGoal, activities: Activity[], now: Date): GoalProgress {
+export function assessGoal(
+  goal: RaceGoal,
+  activities: Activity[],
+  now: Date,
+  tests: Effort[] = [],
+): GoalProgress {
   const list = efforts(activities, goal.distanceM);
   const nowMs = now.getTime();
-  const current = bestBetween(list, nowMs - WINDOW_DAYS * DAY, nowMs);
-  const previous = bestBetween(list, nowMs - 2 * WINDOW_DAYS * DAY, nowMs - WINDOW_DAYS * DAY);
-  const bestEver = bestBetween(list, -Infinity, nowMs);
+  const trainingCurrent = bestBetween(list, nowMs - WINDOW_DAYS * DAY, nowMs);
+  const trainingPrevious = bestBetween(list, nowMs - 2 * WINDOW_DAYS * DAY, nowMs - WINDOW_DAYS * DAY);
+  const bestEver = bestBetween([...list, ...tests], -Infinity, nowMs);
   const weeksLeft = (deadlineMs(goal.deadline) - nowMs) / WEEK;
+
+  const pastTests = tests.filter((t) => Date.parse(t.activity.start) <= nowMs);
+  const lastTest = pastTests.at(-1) ?? null;
+  const useTest = lastTest != null && nowMs - Date.parse(lastTest.activity.start) <= TEST_VALID_DAYS * DAY;
+  const current = useTest ? lastTest : trainingCurrent;
+  const prevTest = useTest ? (pastTests.at(-2) ?? null) : null;
+  const previous = prevTest ?? trainingPrevious;
+
+  let rate: number | null = null;
+  if (prevTest && lastTest) {
+    const weeks = (Date.parse(lastTest.activity.start) - Date.parse(prevTest.activity.start)) / WEEK;
+    rate = weeks > 0 ? (prevTest.equivalentSec - lastTest.equivalentSec) / weeks : null;
+  } else if (trainingCurrent && trainingPrevious) {
+    // 只有一次测试时，进步速度仍用训练跑的趋势（同一种方法前后比较才公平）
+    rate = (trainingPrevious.equivalentSec - trainingCurrent.equivalentSec) / (WINDOW_DAYS / 7);
+  }
 
   const base = {
     goal,
+    basis: (useTest ? "test" : "training") as "test" | "training",
     current,
     previous,
     bestEver,
@@ -74,9 +103,7 @@ export function assessGoal(goal: RaceGoal, activities: Activity[], now: Date): G
   if (weeksLeft <= 0) return { ...base, gapSec, status: "expired" };
 
   const requiredPerWeek = gapSec / weeksLeft;
-  const ratePerWeek = previous
-    ? (previous.equivalentSec - current.equivalentSec) / (WINDOW_DAYS / 7)
-    : null;
+  const ratePerWeek = rate;
   if (ratePerWeek == null || ratePerWeek <= 0) {
     return { ...base, gapSec, requiredPerWeek, ratePerWeek, status: "no-trend" };
   }
