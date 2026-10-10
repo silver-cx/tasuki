@@ -30,13 +30,12 @@ export function regeneratePlan(db: Store, ctx: Context): number {
   const goal = ctx.goal;
   if (!goal) return 0;
   const progress = assessGoal(goal, ctx.activities, ctx.now, ctx.tests);
-  const recent = weeklyVolume(ctx.activities, ctx.now, 4);
-  const baseWeeklyKm = recent.reduce((s, w) => s + w.km, 0) / recent.length;
+  const recentWeeksKm = weeklyVolume(ctx.activities, ctx.now, 4).map((w) => w.km);
   const startDate = addDays(ctx.today, 1);
   const sessions = generatePlan({
     goal,
     currentSec: progress.current?.equivalentSec ?? null,
-    baseWeeklyKm,
+    recentWeeksKm,
     easyHrCap: ctx.hrMax ? zoneRange(ZONES[1], ctx.hrMax.value)[1] : null,
     weekdays: weekdaysOf(db),
     startDate,

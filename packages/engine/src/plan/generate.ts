@@ -6,6 +6,10 @@
 //   - 训练周：每周 1 次质量课（间歇跑和节奏跑交替）、1 次长距离，其余为轻松跑。
 //     大部分跑步是轻松强度，少数几次专门练速度。
 //   - 跑量：以最近 4 周的平均周跑量为起点，每周增加约 10%；测试周降到约 85%，最后一周约 75%。
+//   - 安全上限：任何一周的计划跑量不超过“前 4 周平均”的 RAMP_CAP 倍（与“跑量增长过快”规则一致，
+//     计划自己不会触发这条提醒）。超出时先缩短轻松跑，再减少轻松跑的次数——
+//     所以每周选 4 天时，第 4 次跑会随着跑量上来逐步加进来。
+//   - 测试周最多跑 3 次，测试前一天休息。
 //
 // 这是一个简单、可解释的规则模板，不是个性化的教练处方。配速和距离都是建议值。
 
@@ -16,13 +20,16 @@ export const TEST_EVERY = 3;
 export const WEEKLY_GROWTH = 1.1;
 /** 起始周跑量的下限（公里）。最近 4 周跑得很少时（比如中间停过一周），从这里起步。 */
 export const MIN_BASE_KM = 12;
+/** 每周计划跑量不超过前 4 周平均的这个倍数（“跑量增长过快”规则在 1.3 倍时提醒） */
+export const RAMP_CAP = 1.25;
+const MIN_EASY_KM = 3;
 
 export interface PlanInput {
   goal: RaceGoal;
   /** 当前在目标距离上的估算成绩（秒），没有数据时为 null */
   currentSec: number | null;
-  /** 最近 4 周平均周跑量（公里） */
-  baseWeeklyKm: number;
+  /** 计划开始前最近 4 周每周的跑量（公里），从早到晚 */
+  recentWeeksKm: number[];
   /** 2 区上限心率，用于轻松跑和长距离 */
   easyHrCap: number | null;
   /** 每周跑步的日子，1 = 周一 … 7 = 周日，例如 [2, 4, 6] */
@@ -32,6 +39,7 @@ export interface PlanInput {
 }
 
 const round05 = (km: number) => Math.round(km * 2) / 2;
+const floor05 = (km: number) => Math.floor(km * 2) / 2;
 const WARMUP_KM = 1.5;
 const COOLDOWN_KM = 1;
 
@@ -65,7 +73,12 @@ export function generatePlan(input: PlanInput): PlannedSession[] {
 
   // 3. 逐周生成
   const out: PlannedSession[] = [];
-  let buildKm = Math.max(input.baseWeeklyKm, MIN_BASE_KM);
+  const history = [...input.recentWeeksKm];
+  const avg4 = () => {
+    const last4 = history.slice(-4);
+    return last4.length > 0 ? last4.reduce((a, b) => a + b, 0) / last4.length : 0;
+  };
+  let buildKm = Math.max(avg4(), MIN_BASE_KM);
   let intervalsDone = 0;
   let temposDone = 0;
   let qualityToggle = 0;
@@ -75,7 +88,8 @@ export function generatePlan(input: PlanInput): PlannedSession[] {
     if (isTestWeek(i)) {
       const weekKm = buildKm * (final ? 0.75 : 0.85);
       const testDate = dates.at(-1) as string;
-      const before = dates.slice(0, -1);
+      // 测试前一天休息；测试周最多跑 3 次
+      const before = dates.slice(0, -1).filter((d) => d !== addDays(testDate, -1)).slice(0, 2);
       const easyKm = before.length > 0 ? Math.max(3, round05((weekKm - goalKm - WARMUP_KM - COOLDOWN_KM) / before.length)) : 0;
       before.forEach((date, j) => {
         out.push({
@@ -104,15 +118,16 @@ export function generatePlan(input: PlanInput): PlannedSession[] {
         hrCap: null,
         paceSecPerKm: Math.round(goalPace),
       });
+      history.push(easyKm * before.length + round05(goalKm + WARMUP_KM + COOLDOWN_KM));
       return;
     }
 
     // 训练周
     const weekKm = buildKm;
+    const capKm = Math.max(avg4(), MIN_BASE_KM) * RAMP_CAP;
     const quality = dates[0];
     const long = dates.length >= 2 ? dates.at(-1) : null;
-    const easy = dates.slice(1, long ? -1 : undefined);
-
+    let easy = dates.slice(1, long ? -1 : undefined);
     let qualityKm: number;
     if (qualityToggle % 2 === 0) {
       const reps = Math.min(6, 4 + intervalsDone);
@@ -149,8 +164,21 @@ export function generatePlan(input: PlanInput): PlannedSession[] {
 
     const rest = Math.max(0, weekKm - qualityKm);
     // 长距离至少比目标距离多 1 km，并且是本周最长的轻松跑
-    const longKm = long ? Math.max(goalKm + 1, round05(easy.length > 0 ? rest * 0.55 : rest)) : 0;
-    const easyKm = easy.length > 0 ? Math.max(3, round05((rest - longKm) / easy.length)) : 0;
+    const minLong = goalKm + 1;
+    let longKm = long ? Math.max(minLong, round05(easy.length > 0 ? rest * 0.55 : rest)) : 0;
+    let easyKm = easy.length > 0 ? Math.max(MIN_EASY_KM, round05((rest - longKm) / easy.length)) : 0;
+    // 超过安全上限：先把轻松跑和长距离缩到最短，仍然超出就减少轻松跑的次数（保留靠前的日子）
+    const total = () => qualityKm + easyKm * easy.length + longKm;
+    if (total() > capKm) {
+      if (long) longKm = Math.max(minLong, floor05((capKm - qualityKm) * 0.55));
+      // 在上限内尽量多安排几次；每次至少 MIN_EASY_KM，放不下就少一次
+      while (easy.length > 0) {
+        easyKm = floor05((capKm - qualityKm - longKm) / easy.length);
+        if (easyKm >= MIN_EASY_KM) break;
+        easy = easy.slice(0, -1);
+      }
+      if (easy.length === 0) easyKm = 0;
+    }
     for (const date of easy) {
       out.push({
         date,
@@ -175,6 +203,7 @@ export function generatePlan(input: PlanInput): PlannedSession[] {
     }
     // 下周在本周实际安排的跑量上增长（每次课有最低距离，实际可能略高于目标）
     const plannedKm = qualityKm + easyKm * easy.length + longKm;
+    history.push(plannedKm);
     buildKm = Math.max(buildKm * WEEKLY_GROWTH, plannedKm);
   });
 

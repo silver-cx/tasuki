@@ -21,7 +21,7 @@ const plan = () =>
   generatePlan({
     goal: GOAL,
     currentSec: 1935,
-    baseWeeklyKm: 10,
+    recentWeeksKm: [0, 20, 15.1, 7.1],
     easyHrCap: 134,
     weekdays: [2, 4, 6],
     startDate: "2026-10-12",
@@ -104,6 +104,44 @@ test("测试课和质量课只认同一天", () => {
   const acts = [run("sun", "2026-10-18T00:00:00Z", 5, 36, 140), run("wed", "2026-10-21T00:00:00Z", 10, 70, 168)];
   const matches = matchPlan(sessions, acts, GOAL, "2026-10-22", "Asia/Shanghai");
   assert.ok(matches.every((m) => m.activity == null));
+});
+
+test("计划不会触发“跑量增长过快”：每周不超过前 4 周平均的 1.3 倍", () => {
+  for (const weekdays of [[2, 4, 6], [2, 4, 6, 7], [1, 2, 3, 4, 5, 6]]) {
+    const recent = [0, 20, 15.1, 7.1];
+    const sessions = generatePlan({
+      goal: GOAL,
+      currentSec: 1935,
+      recentWeeksKm: recent,
+      easyHrCap: 134,
+      weekdays,
+      startDate: "2026-10-12",
+    });
+    const weeks = new Map<string, number>();
+    for (const s of sessions) weeks.set(mondayOf(s.date), (weeks.get(mondayOf(s.date)) ?? 0) + s.distanceKm);
+    const history = [...recent];
+    for (const km of weeks.values()) {
+      const avg = history.slice(-4).reduce((a, b) => a + b, 0) / 4;
+      assert.ok(km <= Math.max(avg, 12) * 1.3, `${weekdays}: ${km} km 超过前 4 周平均 ${avg.toFixed(1)} 的 1.3 倍`);
+      history.push(km);
+    }
+  }
+});
+
+test("测试周最多跑 3 次，测试前一天休息", () => {
+  const sessions = generatePlan({
+    goal: GOAL,
+    currentSec: 1935,
+    recentWeeksKm: [10, 10, 10, 10],
+    easyHrCap: 134,
+    weekdays: [2, 4, 6, 7],
+    startDate: "2026-10-12",
+  });
+  for (const t of sessions.filter((s) => s.kind === "test")) {
+    const week = sessions.filter((s) => mondayOf(s.date) === mondayOf(t.date));
+    assert.ok(week.length <= 3);
+    assert.ok(!sessions.some((s) => s.date === addDays(t.date, -1)), `${t.date} 前一天不应安排跑步`);
+  }
 });
 
 test("匹配实际跑步：当天优先，轻松跑允许晚一天；测试课选同一天最快的那次", () => {
