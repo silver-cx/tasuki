@@ -10,6 +10,7 @@
 //   npm run plan                      按目标重新生成训练计划（从明天开始），并显示每周课表
 //   npm run plan -- show              只查看，不重新生成
 //   npm run plan -- --weekdays 2,4,6  设置每周跑步的日子（1 = 周一 … 7 = 周日），并重新生成
+//   npm run dashboard                 同步数据，生成网页看板 data/dashboard.html 并在浏览器里打开
 //
 // 通用参数：
 //   --db <文件>       数据库位置（默认 data/tasuki.db）
@@ -19,7 +20,12 @@
 //   --hrmax <心率>    手动指定最大心率，覆盖估算
 //   --tz <时区>       默认 Asia/Shanghai
 //   --now <日期>      把“今天”当作某一天，用于回看过去或演示样例数据，例如 2026-10-01
+//   --out <文件>      dashboard 的输出位置（默认和数据库在同一个文件夹）
+//   --no-open         dashboard 生成后不自动打开浏览器
 
+import { spawn } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import { parseArgs } from "node:util";
 import { AppleExportError, loadAppleExport } from "#adapters/apple-export";
 import { DEFAULT_DIR, MetricBridgeError, loadMetricBridge } from "#adapters/metricbridge";
@@ -35,6 +41,7 @@ import {
   type Store,
 } from "#store";
 import { buildContext } from "./context.ts";
+import { renderDashboard } from "./dashboard/page.ts";
 import { parseWeekdays, printPlan, regeneratePlan, setWeekdays } from "./plan.ts";
 import { printReport } from "./report.ts";
 
@@ -52,6 +59,8 @@ const { values, positionals } = parseArgs({
     time: { type: "string" },
     by: { type: "string" },
     weekdays: { type: "string" },
+    out: { type: "string" },
+    "no-open": { type: "boolean", default: false },
   },
 });
 
@@ -156,6 +165,15 @@ function plan(db: Store, action: string | undefined) {
   printPlan(db, context(db));
 }
 
+function dashboard(db: Store) {
+  if (!values["no-sync"]) syncMetricBridge(db, true);
+  const out = values.out ?? path.join(path.dirname(values.db as string), "dashboard.html");
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  fs.writeFileSync(out, renderDashboard(context(db)));
+  console.log(`已生成看板：${out}`);
+  if (!values["no-open"] && process.platform === "darwin") spawn("open", [out], { detached: true, stdio: "ignore" }).unref();
+}
+
 if (Number.isNaN(now.getTime())) fail("--now 的格式应为 YYYY-MM-DD，例如 2026-10-01");
 
 const [command = "report", ...rest] = positionals;
@@ -178,8 +196,11 @@ switch (command) {
   case "plan":
     plan(db, rest[0]);
     break;
+  case "dashboard":
+    dashboard(db);
+    break;
   default:
-    fail(`不认识的命令：${command}。可用命令：report、sync、import、goal、plan`);
+    fail(`不认识的命令：${command}。可用命令：report、sync、import、goal、plan、dashboard`);
 }
 
 db.close();

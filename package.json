@@ -22,6 +22,7 @@
     "import": "node --disable-warning=ExperimentalWarning apps/cli/src/main.ts import",
     "goal": "node --disable-warning=ExperimentalWarning apps/cli/src/main.ts goal",
     "plan": "node --disable-warning=ExperimentalWarning apps/cli/src/main.ts plan",
+    "dashboard": "node --disable-warning=ExperimentalWarning apps/cli/src/main.ts dashboard",
     "test": "node --disable-warning=ExperimentalWarning --test \"tests/**/*.test.ts\""
   }
 }
